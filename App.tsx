@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Text, View, ActivityIndicator, TouchableOpacity, RefreshControl, ScrollView, StyleSheet, SafeAreaView, Platform } from 'react-native';
 import { useCallback, useState, useEffect } from 'react';
 import { AirQualityService } from './service/AirQualityService';
+import { styles } from './styles/air-quality-styles'
 
 interface AirData {
   aqi?: number;
@@ -23,20 +24,50 @@ export default function App() {
     setIsLoading(true);
     setError(null);
 
-    const response = await AirQualityService.getStations();
-    setIsLoading(false);
+    try {
+      // Get nearby stations (within 10km by default)
+      const nearbyStations = await AirQualityService.getNearbyStations();
+      console.log('Nearby stations:', nearbyStations);
+      if (nearbyStations.length === 0) {
+        throw new Error('No air quality stations found nearby');
+      }
+
+      // Use the closest station (first in the array since they're sorted by distance)
+      const closestStation = nearbyStations[0];
+
+      // Create AirData object from the station data
+      const newAirData: AirData = {
+        aqi: parseInt(closestStation.dustboy_status), // Assuming this is the AQI value
+        coordinates: {
+          latitude: parseFloat(closestStation.dustboy_lat),
+          longitude: parseFloat(closestStation.dustboy_lng)
+        },
+        stationName: closestStation.dustboy_name_en,
+        timestamp: new Date().toISOString(),
+        pollutants: {
+          'PM2.5': parseFloat(closestStation.dustboy_pv), // Add other pollutants as needed
+        }
+      };
+
+      setAirData(newAirData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch air quality data');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
+  // Rest of your component code remains the same...
   const getAQIColor = (aqi?: number) => {
     if (!aqi) return '#3b82f6';
-    if (aqi <= 50) return '#10b981'; // Good
-    if (aqi <= 100) return '#f59e0b'; // Moderate
-    if (aqi <= 150) return '#ef4444'; // Unhealthy for Sensitive Groups
-    return '#7f1d1d'; // Unhealthy
+    if (aqi <= 50) return '#10b981';
+    if (aqi <= 100) return '#f59e0b';
+    if (aqi <= 150) return '#ef4444';
+    return '#7f1d1d';
   };
 
   const getAQILabel = (aqi?: number) => {
@@ -80,7 +111,7 @@ export default function App() {
           ) : airData ? (
             <View style={styles.dataContainer}>
               <Text style={styles.title}>Air Quality Index</Text>
-              
+
               {/* Location Display */}
               <View style={styles.locationContainer}>
                 <Text style={styles.locationLabel}>Current Location</Text>
@@ -130,144 +161,3 @@ export default function App() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollViewContent: {
-    flexGrow: 1,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#6b7280',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#ef4444',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  dataContainer: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  locationContainer: {
-    backgroundColor: '#f3f4f6',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  locationLabel: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  locationText: {
-    fontSize: 14,
-    color: '#4b5563',
-    textAlign: 'center',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginBottom: 8,
-  },
-  stationName: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  aqiContainer: {
-    padding: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  aqiNumber: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  aqiLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  pollutantsContainer: {
-    backgroundColor: '#f9fafb',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 12,
-  },
-  pollutantRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  pollutantKey: {
-    fontSize: 16,
-    color: '#4b5563',
-  },
-  pollutantValue: {
-    fontSize: 16,
-    color: '#1f2937',
-    fontWeight: '500',
-  },
-  timestamp: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  retryButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  fetchButton: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignSelf: 'center',
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
