@@ -1,18 +1,29 @@
 import { StatusBar } from 'expo-status-bar';
-import { Text, View, ActivityIndicator, TouchableOpacity, RefreshControl, ScrollView, StyleSheet, SafeAreaView, Platform } from 'react-native';
+import { Text, View, ActivityIndicator, TouchableOpacity, RefreshControl, ScrollView, SafeAreaView } from 'react-native';
 import { useCallback, useState, useEffect } from 'react';
 import { AirQualityService } from './service/AirQualityService';
-import { styles } from './styles/air-quality-styles'
+import { styles } from './styles/air-quality-styles';
+
+interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
 
 interface AirData {
-  aqi?: number;
-  pollutants?: Record<string, number>;
-  timestamp?: string;
-  coordinates?: {
-    latitude: number;
-    longitude: number;
+  aqi: number;
+  pollutants: {
+    'PM2.5': number;
+    'PM10': number;
   };
-  stationName?: string;
+  timestamp: string;
+  coordinates: Coordinates;
+  stationName: string;
+  stationId: string;
+  quality: {
+    label: string;
+    color: string;
+    description: string;
+  };
 }
 
 export default function App() {
@@ -25,33 +36,44 @@ export default function App() {
     setError(null);
 
     try {
-      // Get nearby stations (within 10km by default)
       const nearbyStations = await AirQualityService.getNearbyStations();
       console.log('Nearby stations:', nearbyStations);
-      if (nearbyStations.length === 0) {
+
+      if (!nearbyStations || nearbyStations.length === 0) {
         throw new Error('No air quality stations found nearby');
       }
 
-      // Use the closest station (first in the array since they're sorted by distance)
-      const closestStation = nearbyStations[0];
+      // Try to get data from stations sequentially until we succeed
+      const stationValue = await AirQualityService.getStationValueWithFallback(nearbyStations);
+      console.log('Station value data:', stationValue);
 
-      // Create AirData object from the station data
+      // Rest of your code remains the same...
       const newAirData: AirData = {
-        aqi: parseInt(closestStation.dustboy_status), // Assuming this is the AQI value
-        coordinates: {
-          latitude: parseFloat(closestStation.dustboy_lat),
-          longitude: parseFloat(closestStation.dustboy_lng)
-        },
-        stationName: closestStation.dustboy_name_en,
-        timestamp: new Date().toISOString(),
+        aqi: parseInt(stationValue.us_aqi),
         pollutants: {
-          'PM2.5': parseFloat(closestStation.dustboy_pv), // Add other pollutants as needed
+          'PM2.5': stationValue.pm25 || 0,
+          'PM10': stationValue.pm10 || 0
+        },
+        coordinates: {
+          latitude: parseFloat(stationValue.dustboy_lat),
+          longitude: parseFloat(stationValue.dustboy_lon)
+        },
+        stationName: stationValue.dustboy_name_en,
+        stationId: stationValue.dustboy_id,
+        timestamp: stationValue.log_datetime,
+        quality: {
+          label: stationValue.us_title_en,
+          color: stationValue.us_color.replace(/,/g, ', '),
+          description: stationValue.us_caption_en
         }
       };
 
+      console.log('Processed air data:', newAirData);
       setAirData(newAirData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch air quality data');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch air quality data';
+      console.error('Error fetching air quality data:', errorMessage);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -61,21 +83,9 @@ export default function App() {
     fetchData();
   }, [fetchData]);
 
-  // Rest of your component code remains the same...
-  const getAQIColor = (aqi?: number) => {
-    if (!aqi) return '#3b82f6';
-    if (aqi <= 50) return '#10b981';
-    if (aqi <= 100) return '#f59e0b';
-    if (aqi <= 150) return '#ef4444';
-    return '#7f1d1d';
-  };
-
-  const getAQILabel = (aqi?: number) => {
-    if (!aqi) return 'Unknown';
-    if (aqi <= 50) return 'Good';
-    if (aqi <= 100) return 'Moderate';
-    if (aqi <= 150) return 'Unhealthy for Sensitive Groups';
-    return 'Unhealthy';
+  const getAQIColor = (aqi: number) => {
+    const rgbColor = airData?.quality.color || '59, 130, 246'; // Default blue
+    return `rgb(${rgbColor})`;
   };
 
   return (
@@ -112,31 +122,29 @@ export default function App() {
             <View style={styles.dataContainer}>
               <Text style={styles.title}>Air Quality Index</Text>
 
-              {/* Location Display */}
               <View style={styles.locationContainer}>
-                <Text style={styles.locationLabel}>Current Location</Text>
+                <Text style={styles.locationLabel}>Monitoring Station</Text>
+                <Text style={styles.stationName}>{airData.stationName}</Text>
                 <Text style={styles.locationText}>
-                  {airData.coordinates?.latitude.toFixed(6)}, {airData.coordinates?.longitude.toFixed(6)}
+                  {airData.coordinates.latitude.toFixed(6)}, {airData.coordinates.longitude.toFixed(6)}
                 </Text>
-                {airData.stationName && (
-                  <Text style={styles.stationName}>
-                    Nearest Station: {airData.stationName}
-                  </Text>
-                )}
               </View>
 
               <View style={[styles.aqiContainer, { backgroundColor: `${getAQIColor(airData.aqi)}15` }]}>
                 <Text style={[styles.aqiNumber, { color: getAQIColor(airData.aqi) }]}>
-                  {airData.aqi || 'N/A'}
+                  {airData.aqi}
                 </Text>
                 <Text style={[styles.aqiLabel, { color: getAQIColor(airData.aqi) }]}>
-                  {getAQILabel(airData.aqi)}
+                  {airData.quality.label}
+                </Text>
+                <Text style={styles.aqiDescription}>
+                  {airData.quality.description}
                 </Text>
               </View>
 
               <View style={styles.pollutantsContainer}>
                 <Text style={styles.sectionTitle}>Pollutants</Text>
-                {airData.pollutants && Object.entries(airData.pollutants).map(([key, value]) => (
+                {Object.entries(airData.pollutants).map(([key, value]) => (
                   <View key={key} style={styles.pollutantRow}>
                     <Text style={styles.pollutantKey}>{key}</Text>
                     <Text style={styles.pollutantValue}>{value} µg/m³</Text>
@@ -145,7 +153,7 @@ export default function App() {
               </View>
 
               <Text style={styles.timestamp}>
-                Last Updated: {airData.timestamp || new Date().toLocaleString()}
+                Last Updated: {new Date(airData.timestamp).toLocaleString()}
               </Text>
             </View>
           ) : (
